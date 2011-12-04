@@ -12,13 +12,16 @@ class Result
                 :as_epub, :as_pdf, :as_audio, :as_kindle
   
   def to_s
-    s = "#{title}#{subtitle} ==================\n"+
-    "  #{author}\n" +
-    "  #{link_path}\n"
-    s += "  epub\n" if self.as_epub
-    s += "  pdf\n" if self.as_pdf
-    s += "  audio\n" if self.as_audio
-    s += "  kindle\n" if self.as_kindle
+    s = <<-DUMP
+======
+#{title}: #{subtitle}
+  author: #{author}
+    link: #{link_path}
+DUMP
+    s += "  format: epub\n" if self.as_epub
+    s += "  format: pdf\n" if self.as_pdf
+    s += "  format: audio\n" if self.as_audio
+    s += "  format: kindle\n" if self.as_kindle
     s
   end
 end
@@ -82,15 +85,11 @@ class SendMessage
       search_result = page.form_with(:name => 'freeform') do |search|
         search['FullTextCriteria'] = query
       end.submit
-      # page.search('h2[@class="subtitle"]').first.inner_html.strip
-      # times = page.search('//div[@class="content"]/div[@class="datetime"]').first.inner_html.strip
-      # location = page.search('//div[@class="content"]/div[@class="location"]').first.inner_html.strip
       
       puts '--------------'
       results = {}
       
       search_result.search('td').each_with_index do |td, ti|
-        #puts "TD #{ti} &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&"
         title_links = td.search('b/a')
         if title_links && title_links.size==1
           result = Result.new
@@ -99,7 +98,6 @@ class SendMessage
           result.title = anchor.inner_html
           result.link_path = anchor["href"]
           
-          #puts "TD LINK #{ti} &^&^&^&^&^&^&^&^&^&^&^&^&^&^&^&^&^&^&^&^&^&^&^&^&^&^&^&^&^&^&^&^"
           small_elements = td.search('div/small')
           small_elements.each do |small_element|
             #puts "********************************"
@@ -115,12 +113,19 @@ class SendMessage
             end
           end
           
-          result.as_audio = !td.search('//img[@alt="OverDrive WMA Audiobooks"]').empty?
-          result.as_epub = !td.search('//img[@alt="Adobe EPUB eBook"]').empty?
-          result.as_pdf = !td.search('//img[@alt="Adobe PDF eBook"]').empty?
-          result.as_kindle = !td.search('//img[@alt="Kindle Book"]').empty?
-          
-          results[result.link_path] = result
+          # The 4th TR down will contain the associated formats
+          if td.path =~ %r(/html/body/table\[3\]/tr/td\[3\]/table\[3\]/tr\[(\d+)\]/td\[3\]/table/tr/td\[1\])
+            title_tr_index = $1
+            formats_tr_index = $1.to_i + 4
+            formats_tr = search_result.parser.xpath("/html/body/table[3]/tr/td[3]/table[3]/tr[#{formats_tr_index}]")
+            
+            result.as_audio = !formats_tr.search('img[@alt="OverDrive WMA Audiobooks"]').empty?
+            result.as_epub = !formats_tr.search('img[@alt="Adobe EPUB eBook"]').empty?
+            result.as_pdf = !formats_tr.search('img[@alt="Adobe PDF eBook"]').empty?
+            result.as_kindle = !formats_tr.search('img[@alt="Kindle Book"]').empty?
+
+            results[result.link_path] = result
+          end
         end
       end
       
