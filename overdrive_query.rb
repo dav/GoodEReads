@@ -51,6 +51,11 @@ class SendMessage
         @options[:query] = t
       end
 
+      @options[:isbn] = nil
+      opts.on( '-i', '--isbn number', 'Lookup by ISBN' ) do |isbn|
+        @options[:isbn] = isbn
+      end
+
       opts.on( '-h', '--help', 'Display this screen' ) do
         puts opts
         exit
@@ -65,15 +70,79 @@ class SendMessage
     end
   end
   
+  def do_text_query(page)
+    query = @options[:query]
+    puts "Searching for '#{query}'"
+
+    search_result = page.form_with(:name => 'freeform') do |search|
+      search['FullTextCriteria'] = query
+    end.submit
+    
+    return parse_results(search_result)
+  end
+
+  def do_isbn_query(page)
+    isbn = @options[:isbn]
+    puts "Searching for 'isbn=#{isbn}'"
+
+    page = page.link_with(:text => 'Advanced search...').click
+    
+    search_result = page.form_with(:action => 'BANGSearch.dll') do |search|
+      search['ISBN'] = isbn
+    end.submit
+    
+    return parse_results(search_result)
+  end
+  
+  def parse_results(search_result)
+    results = {}
+    
+    search_result.search('td').each_with_index do |td, ti|
+      title_links = td.search('b/a')
+      if title_links && title_links.size==1
+        result = Result.new
+        
+        anchor = title_links.first
+        result.title = anchor.inner_html
+        result.link_path = anchor["href"]
+        
+        small_elements = td.search('div/small')
+        small_elements.each do |small_element|
+          #puts "********************************"
+          #pp small_element
+          subtitle_element = small_element.search('b')
+          unless subtitle_element.empty?
+            result.subtitle = ": #{subtitle_element.inner_html}"
+          end
+
+          is_author_element = small_element.search('noscript')
+          unless is_author_element.empty?
+            result.author = small_element.children.last.text.strip
+          end
+        end
+        
+        # The 4th TR down will contain the associated formats
+        if td.path =~ %r(/html/body/table\[3\]/tr/td\[3\]/table\[3\]/tr\[(\d+)\]/td\[3\]/table/tr/td\[1\])
+          title_tr_index = $1
+          formats_tr_index = $1.to_i + 4
+          formats_tr = search_result.parser.xpath("/html/body/table[3]/tr/td[3]/table[3]/tr[#{formats_tr_index}]")
+          
+          result.as_audio = !formats_tr.search('img[@alt="OverDrive WMA Audiobooks"]').empty?
+          result.as_epub = !formats_tr.search('img[@alt="Adobe EPUB eBook"]').empty?
+          result.as_pdf = !formats_tr.search('img[@alt="Adobe PDF eBook"]').empty?
+          result.as_kindle = !formats_tr.search('img[@alt="Kindle Book"]').empty?
+
+          results[result.link_path] = result
+        end
+      end
+    end
+    results  end 
+  
   def run
-    unless @options[:query]
-      puts "Not enough options specified. Need -f, -t and -m. Try -h"
+    unless @options[:query] || @options[:isbn]
+      puts "Not enough options specified. Need -q or -i. Try -h"
       exit
     end
-    
-    query = @options[:query]
-    
-    puts "Searching for '#{query}'"
     
     url = 'http://oakland.lib.overdrive.com/'
     
@@ -82,51 +151,10 @@ class SendMessage
     }
     
     agent.get(url) do |page|
-      search_result = page.form_with(:name => 'freeform') do |search|
-        search['FullTextCriteria'] = query
-      end.submit
-      
-      puts '--------------'
-      results = {}
-      
-      search_result.search('td').each_with_index do |td, ti|
-        title_links = td.search('b/a')
-        if title_links && title_links.size==1
-          result = Result.new
-          
-          anchor = title_links.first
-          result.title = anchor.inner_html
-          result.link_path = anchor["href"]
-          
-          small_elements = td.search('div/small')
-          small_elements.each do |small_element|
-            #puts "********************************"
-            #pp small_element
-            subtitle_element = small_element.search('b')
-            unless subtitle_element.empty?
-              result.subtitle = ": #{subtitle_element.inner_html}"
-            end
-
-            is_author_element = small_element.search('noscript')
-            unless is_author_element.empty?
-              result.author = small_element.children.last.text.strip
-            end
-          end
-          
-          # The 4th TR down will contain the associated formats
-          if td.path =~ %r(/html/body/table\[3\]/tr/td\[3\]/table\[3\]/tr\[(\d+)\]/td\[3\]/table/tr/td\[1\])
-            title_tr_index = $1
-            formats_tr_index = $1.to_i + 4
-            formats_tr = search_result.parser.xpath("/html/body/table[3]/tr/td[3]/table[3]/tr[#{formats_tr_index}]")
-            
-            result.as_audio = !formats_tr.search('img[@alt="OverDrive WMA Audiobooks"]').empty?
-            result.as_epub = !formats_tr.search('img[@alt="Adobe EPUB eBook"]').empty?
-            result.as_pdf = !formats_tr.search('img[@alt="Adobe PDF eBook"]').empty?
-            result.as_kindle = !formats_tr.search('img[@alt="Kindle Book"]').empty?
-
-            results[result.link_path] = result
-          end
-        end
+      results = if @options[:isbn]
+        do_isbn_query(page)
+      else
+        do_text_query(page)
       end
       
       results.keys.each do |key|
