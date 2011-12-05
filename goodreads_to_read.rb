@@ -8,19 +8,26 @@ Goodreads.configure(config['goodreads']['key'])
 
 client = Goodreads::Client.new
 
+def puts_attrs(mash, *attrs)
+  attrs.each do |attr|
+    val = mash.send(attr)
+    puts "  #{attr}: #{val}" unless val.nil?
+  end
+end
+
 begin
   response = client.shelf_reviews(config['goodreads']['user_id'], 'to-read', :sort => 'date_added', :order => 'd', :per_page => 100)
   review_arr = response["review"]
   rating_accumulator = 0
   review_arr.each do |review|
     book = review.book
+    
     title = book.title.strip
-    isbn = book.isbn || book.isbn13
     rating = book.average_rating
     rating_accumulator += rating.to_f
+    
     puts "-- #{title}"
-    puts "   #{isbn}" if isbn
-    puts "   #{rating}"
+    puts_attrs book, :isbn, :isbn13, :average_rating
   end
   puts "\nAverage rating: #{rating_accumulator / review_arr.size}"
 rescue Goodreads::NotFound => nf
