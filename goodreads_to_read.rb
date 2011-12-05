@@ -3,26 +3,49 @@ $: << './goodreads/lib'
 require 'goodreads'
 require 'pp'
 
-Goodreads.configure('Zr3kxWns9m8PuNsZV6Q')
+config = YAML.load_file( "config.yml" )
+Goodreads.configure(config['goodreads']['key'])
+
 client = Goodreads::Client.new
 
 begin
-  response = client.shelf_reviews(381736, 'to-read', :sort => 'date_added', :order => 'd')
+  response = client.shelf_reviews(config['goodreads']['user_id'], 'to-read', :sort => 'date_added', :order => 'd', :per_page => 100)
   review_arr = response["review"]
+  rating_accumulator = 0
   review_arr.each do |review|
     book = review.book
     title = book.title.strip
     isbn = book.isbn || book.isbn13
     rating = book.average_rating
+    rating_accumulator += rating.to_f
     puts "-- #{title}"
     puts "   #{isbn}" if isbn
     puts "   #{rating}"
   end
+  puts "\nAverage rating: #{rating_accumulator / review_arr.size}"
 rescue Goodreads::NotFound => nf
   puts "404 bitch"
 end
 
 __END__
+
+shelf request API:
+
+# Get the books on a members shelf. Customize the feed with the below variables. Viewing members with profiles who have set them as visible to members only or just their friends requires using OAuth. 
+# URL: http://www.goodreads.com/review/list.xml?v=2    (sample url) 
+# HTTP method: GET 
+# Parameters: 
+# v: 2
+# page: 1-N (optional)
+# shelf: read, currently-reading, to-read, etc. (optional)
+# sort: available_for_swap, position, num_pages, votes, recommender, rating, shelves, format, avg_rating, date_pub, isbn, comments, author, title, notes, cover, isbn13, review, date_pub_edition, condition, asin, date_started, owned, random, date_read, year_pub, read_count, date_added, date_purchased, num_ratings, purchase_location, date_updated (optional)
+# per_page: 1-200 (optional)
+# order: a, d (optional)
+# id: Goodreads id of the user
+# key: Developer key (required).
+# search[query]: query text to match against member's books (optional)
+
+
 Example review response:
 
 {"id"=>"28636500",
